@@ -6,15 +6,27 @@ const IBAY_PLUS = {
       hideKeywords: [],
       highlightKeywords: [],
       alertsEnabled: true,
+      spamFilter: {
+        enabled: true,
+        allCaps: false,       // opt-in: ALL-CAPS titles are normal practice on ibay
+        maxPhones: 3,         // hide titles with >= N phone-number-like runs (0 = off)
+        repeatedJunk: true,   // hide titles with long runs of repeated chars/punct/emoji
+        maxPostsPerSeller: 0, // collapse sellers posting more than N listings (0 = off)
+        blockSellers: {},     // sellerId -> { name, at }
+      },
     },
     watchlist: {},
   },
 
-  /** Read the whole store (settings + watchlist), with defaults filled in. */
+  /** Read the whole store (settings + watchlist), with defaults filled in —
+      including nested defaults for spamFilter (older installs lack it). */
   async load() {
     const data = await chrome.storage.local.get(["settings", "watchlist"]);
+    const settings = Object.assign({}, IBAY_PLUS.DEFAULTS.settings, data.settings || {});
+    settings.spamFilter = Object.assign(
+      {}, IBAY_PLUS.DEFAULTS.settings.spamFilter, settings.spamFilter || {});
     return {
-      settings: Object.assign({}, IBAY_PLUS.DEFAULTS.settings, data.settings || {}),
+      settings,
       watchlist: data.watchlist || {},
     };
   },
@@ -33,6 +45,12 @@ const IBAY_PLUS = {
     return m ? m[1] : null;
   },
 
+  /** Extract seller profile id from an index.php?page=profile&id=N href. */
+  sellerIdFromUrl(url) {
+    const m = /[?&]id=(\d+)/.exec(url || "");
+    return m ? m[1] : null;
+  },
+
   /** Parse "MVR 4,300.00" style text into a number (null when absent). */
   parsePrice(text) {
     if (!text) return null;
@@ -43,7 +61,7 @@ const IBAY_PLUS = {
     return Number.isFinite(n) ? n : null;
   },
 
-  /** Format a price for display, e.g. "MVR 4,300.00" -> "Rf 4,300". */
+  /** Format a price for display, e.g. "MVR 4,300.00" -> "MVR 4,300". */
   formatPrice(n) {
     if (n == null || !Number.isFinite(n)) return "—";
     return "MVR " + n.toLocaleString("en-US", { maximumFractionDigits: 2 });

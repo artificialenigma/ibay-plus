@@ -42,6 +42,21 @@
       <span class="ibp-label">Highlight listings containing</span>
       <textarea id="highlight-keywords" rows="3" placeholder="e.g. iphone 15, ps5, maldives trip"></textarea>
     </label>
+
+    <div class="ibp-field">
+      <span class="ibp-label">🚫 Spam filter</span>
+      <label class="ibp-toggle"><input type="checkbox" id="spam-enabled" /><span>Remove spam posts from listings</span></label>
+      <label class="ibp-toggle"><input type="checkbox" id="spam-allcaps" /><span>ALL-CAPS shouting titles</span></label>
+      <label class="ibp-toggle"><input type="checkbox" id="spam-junk" /><span>Junk characters (!!!!, -----)</span></label>
+      <label class="ibp-inline">
+        Hide titles with ≥ <input type="number" id="spam-phones" min="0" max="10" step="1" style="width:52px"> phone numbers (0 = off)
+      </label>
+      <label class="ibp-inline">
+        Collapse sellers posting more than <input type="number" id="spam-flood" min="0" max="50" step="1" style="width:52px"> listings (0 = off)
+      </label>
+      <div id="blocked-sellers" class="ibp-blocked"></div>
+    </div>
+
     <label class="ibp-toggle">
       <input type="checkbox" id="alerts-enabled" />
       <span>Price-drop notifications (checked every 30 min)</span>

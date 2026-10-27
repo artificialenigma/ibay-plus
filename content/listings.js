@@ -1,18 +1,21 @@
 /* iBay Plus — listing page enhancements:
    - watchlist heart button on every listing card
-   - hide listings matching blocklist keywords (with a summary bar)
-   - highlight listings matching watch keywords
-   - "since saved" price badge for watchlisted items */
+   - spam removal: seller block button, heuristics (ALL-CAPS, phone spam,
+     junk chars), optional flood cap — hidden before you see them
+   - keyword hide/highlight
+   - combined "hidden listings" bar with reveal
+   - MutationObserver so late-added cards get decorated too */
 
 (function () {
   "use strict";
 
-  let store = null; // { settings, watchlist }
+  let settings = null;
+  let watchlist = null;
+  let revealed = false; // user clicked "show them" — don't re-hide until reload
 
-  function firstPriceInRow(row) {
-    const el = row.querySelector(".price");
-    return el ? IBAY_PLUS.parsePrice(el.textContent) : null;
-  }
+  const ctx = { counts: { keyword: 0, spam: 0, flood: 0 }, seenSellers: null };
+
+  /* ---------- extraction ---------- */
 
   function extractItem(row) {
     const link = row.querySelector("h5 a") || row.querySelector(".image a");
@@ -23,41 +26,78 @@
     const img = row.querySelector(".image img");
     const thumb = img ? (img.getAttribute("data-src") || img.getAttribute("src")) : null;
     const sellerA = row.querySelector(".iw-by-seller a");
+    const sellerId = sellerA ? IBAY_PLUS.sellerIdFromUrl(sellerA.getAttribute("href")) : null;
 
     return {
       id,
       url: link.href.split("?")[0],
       title: link.textContent.trim(),
-      price: firstPriceInRow(row),
+      price: (() => {
+        const el = row.querySelector(".price");
+        return el ? IBAY_PLUS.parsePrice(el.textContent) : null;
+      })(),
       image: thumb,
       seller: sellerA ? sellerA.textContent.trim() : "",
+      sellerId,
       sellerUrl: sellerA ? sellerA.href : "",
     };
   }
 
-  function matchesAnyKeyword(title, keywords) {
-    const t = title.toLowerCase();
-    return keywords.some((k) => {
-      const kw = String(k).trim().toLowerCase();
-      return kw && t.includes(kw);
-    });
+  /* ---------- spam detection ---------- */
+
+  function spamReason(item) {
+    const sf = settings.spamFilter;
+    if (!sf.enabled || !item) return null;
+    const t = item.title || "";
+
+    // seller the user hid
+    if (item.sellerId && sf.blockSellers[item.sellerId]) return "seller you hid";
+
+    // flooding: too many phone numbers in the title
+    if (sf.maxPhones > 0) {
+      const phones = (t.match(/\d{6,}/g) || []).length;
+      if (phones >= sf.maxPhones) return `${phones} phone numbers`;
+    }
+
+    // ALL-CAPS shouting
+    if (sf.allCaps) {
+      const letters = t.replace(/[^a-zA-Z]/g, "");
+      if (letters.length >= 14) {
+        const caps = t.replace(/[^A-Z]/g, "");
+        if (caps.length / letters.length >= 0.85) return "ALL-CAPS title";
+      }
+    }
+
+    // long runs of repeated characters / punctuation / emoji
+    if (sf.repeatedJunk && (
+      /(.)\1{5,}/.test(t) ||
+      /[!$*#-]{4,}/.test(t) ||
+      /(?:\p{Extended_Pictographic}\s*){6,}/u.test(t)
+    )) {
+      return "junk characters";
+    }
+    return null;
   }
 
-  /** Heart button (own storage — works without an ibay account). */
-  function buildWatchBtn(item, watched) {
+  function sellerBlocked(item) {
+    const sf = settings.spamFilter;
+    return !!(item.sellerId && sf.enabled && sf.blockSellers[item.sellerId]);
+  }
+
+  /* ---------- decoration ---------- */
+
+  function buildWatchBtn(item) {
     const btn = document.createElement("button");
-    btn.className = "ibp-watch-btn" + (watched ? " ibp-watched" : "");
+    btn.className = "ibp-watch-btn";
     btn.type = "button";
-    btn.title = watched ? "On your iBay Plus watchlist" : "Save to iBay Plus watchlist";
-    btn.textContent = watched ? "♥" : "♡";
     btn.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const { settings, watchlist } = await IBAY_PLUS.load();
-      if (watchlist[item.id]) {
-        delete watchlist[item.id];
+      const store = await IBAY_PLUS.load();
+      if (store.watchlist[item.id]) {
+        delete store.watchlist[item.id];
       } else {
-        watchlist[item.id] = {
+        store.watchlist[item.id] = {
           id: item.id,
           url: item.url,
           title: item.title,
@@ -73,85 +113,151 @@
           alertBelow: null,
         };
       }
-      await IBAY_PLUS.save({ watchlist });
+      await IBAY_PLUS.save({ watchlist: store.watchlist });
     });
     return btn;
   }
 
-  function decorate(row, settings, watchlist) {
+  function buildHideSellerBtn(item) {
+    const btn = document.createElement("a");
+    btn.className = "ibp-hide-seller";
+    btn.href = "#";
+    btn.title = "Hide this seller's listings (iBay Plus)";
+    btn.textContent = "🚫";
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!item.sellerId) return;
+      const store = await IBAY_PLUS.load();
+      store.settings.spamFilter.blockSellers[item.sellerId] = {
+        name: item.seller || `seller ${item.sellerId}`,
+        at: Date.now(),
+      };
+      await IBAY_PLUS.save({ settings: store.settings });
+      showToast(`Seller "${item.seller}" hidden`, async () => {
+        const st = await IBAY_PLUS.load();
+        delete st.settings.spamFilter.blockSellers[item.sellerId];
+        await IBAY_PLUS.save({ settings: st.settings });
+      });
+      applyAll();
+    });
+    return btn;
+  }
+
+  function decorate(row) {
     const item = extractItem(row);
-    if (!item) return;
+    if (!item) return null;
 
     row.classList.add("ibp-card");
     row.style.position = "relative";
 
-    // --- watch button ---
+    // watch heart
     let btn = row.querySelector(".ibp-watch-btn");
-    if (!btn) {
-      btn = buildWatchBtn(item, false);
-      row.appendChild(btn);
-    }
+    if (!btn) { btn = buildWatchBtn(item); row.appendChild(btn); }
     const watched = !!watchlist[item.id];
     btn.classList.toggle("ibp-watched", watched);
     btn.textContent = watched ? "♥" : "♡";
     btn.title = watched ? "On your iBay Plus watchlist" : "Save to iBay Plus watchlist";
 
-    // --- "since saved" price badge ---
+    // hide-seller chip next to the seller name
+    const by = row.querySelector(".iw-prod-by");
+    if (by && item.sellerId && !by.querySelector(".ibp-hide-seller")) {
+      by.appendChild(buildHideSellerBtn(item));
+    }
+
+    // "since saved" price badge
     let badge = row.querySelector(".ibp-since-badge");
     const w = watchlist[item.id];
     if (watched && w && w.price != null && item.price != null && item.price !== w.price) {
       const diff = item.price - w.price;
-      if (!badge) {
-        badge = document.createElement("span");
-        badge.className = "ibp-since-badge";
-        row.appendChild(badge);
-      }
+      if (!badge) { badge = document.createElement("span"); badge.className = "ibp-since-badge"; row.appendChild(badge); }
       const pct = ((diff / w.price) * 100).toFixed(0);
       badge.textContent = `${diff < 0 ? "▼" : "▲"} ${IBAY_PLUS.formatPrice(item.price)} (${pct}%)`;
       badge.classList.toggle("ibp-drop", diff < 0);
       badge.classList.toggle("ibp-rise", diff > 0);
-    } else if (badge) {
-      badge.remove();
-    }
+    } else if (badge) badge.remove();
 
-    // --- keyword filters ---
-    const title = item.title;
-    const hidden = matchesAnyKeyword(title, settings.hideKeywords);
-    const highlighted = matchesAnyKeyword(title, settings.highlightKeywords);
-    row.classList.toggle("ibp-hidden-row", hidden);
-    row.classList.toggle("ibp-highlight-row", highlighted && !hidden);
-
-    if (highlighted && !hidden && !row.querySelector(".ibp-match-badge")) {
-      const mb = document.createElement("span");
+    // keyword highlight
+    const highlighted = settings.highlightKeywords.some((k) => {
+      const kw = String(k).trim().toLowerCase();
+      return kw && item.title.toLowerCase().includes(kw);
+    });
+    row.classList.toggle("ibp-highlight-row", highlighted);
+    let mb = row.querySelector(".ibp-match-badge");
+    if (highlighted && !mb) {
+      mb = document.createElement("span");
       mb.className = "ibp-match-badge";
       mb.textContent = "★ match";
       row.appendChild(mb);
-    }
-    if (!highlighted || hidden) {
-      const mb = row.querySelector(".ibp-match-badge");
-      if (mb) mb.remove();
-    }
+    } else if (!highlighted && mb) mb.remove();
 
-    return { item, hidden };
+    // hiding: keyword > spam/seller reasons
+    const kwHit = settings.hideKeywords.some((k) => {
+      const kw = String(k).trim().toLowerCase();
+      return kw && item.title.toLowerCase().includes(kw);
+    });
+    let reason = null;
+    if (kwHit) { reason = "keyword"; ctx.counts.keyword++; }
+    else {
+      reason = spamReason(item);
+      if (reason) ctx.counts.spam++;
+    }
+    const hidden = !!reason && !revealed;
+    row.classList.toggle("ibp-hidden-row", hidden);
+    row.classList.toggle("ibp-highlight-row", highlighted && !hidden);
+    if (mb && hidden) mb.remove();
+
+    return { item, hidden, reason };
   }
 
-  /** Bar showing how many rows were hidden + button to reveal them. */
-  function renderHiddenBar(rows, revealed) {
-    document.querySelectorAll(".ibp-hidden-bar").forEach((el) => el.remove());
-    const hiddenCount = [...rows].filter((r) =>
-      r.classList.contains("ibp-hidden-row")).length;
-    if (!hiddenCount || revealed) return;
+  /* ---------- flood cap ---------- */
 
+  function applyFloodCap() {
+    const max = Number(settings.spamFilter.maxPostsPerSeller) || 0;
+    if (max <= 0) return;
+    const counts = new Map();
+    document.querySelectorAll(".latest-list-item").forEach((row) => {
+      const link = row.querySelector("h5 a") || row.querySelector(".image a");
+      if (!link) return;
+      const sellerA = row.querySelector(".iw-by-seller a");
+      const sid = sellerA ? IBAY_PLUS.sellerIdFromUrl(sellerA.getAttribute("href")) : null;
+      if (!sid) return;
+      const n = (counts.get(sid) || 0) + 1;
+      counts.set(sid, n);
+      const over = n > max && !revealed;
+      if (over && !row.classList.contains("ibp-hidden-row")) {
+        row.classList.add("ibp-hidden-row", "ibp-flood-row");
+        ctx.counts.flood++;
+      }
+    });
+  }
+
+  /* ---------- hidden bar & toast ---------- */
+
+  function renderBar() {
+    document.querySelectorAll(".ibp-hidden-bar").forEach((el) => el.remove());
+    const c = ctx.counts;
+    const total = c.keyword + c.spam + c.flood;
+    if (!total) return;
+
+    const rows = document.querySelectorAll(".latest-list-item");
     const first = rows[0];
     if (!first || !first.parentElement) return;
+
+    const parts = [];
+    if (c.keyword) parts.push(`${c.keyword} by keyword`);
+    if (c.spam) parts.push(`${c.spam} spam/sellers`);
+    if (c.flood) parts.push(`${c.flood} repost flood`);
 
     const bar = document.createElement("div");
     bar.className = "ibp-hidden-bar";
     bar.innerHTML =
-      `🚫 iBay Plus hid ${hiddenCount} listing${hiddenCount === 1 ? "" : "s"} by keyword — ` +
-      `<a href="#">show them</a>`;
+      `🚫 iBay Plus hid ${total} listing${total === 1 ? "" : "s"} — ` +
+      IBAY_PLUS.esc(parts.join(" · ")) +
+      ` — <a href="#">show them</a>`;
     bar.querySelector("a").addEventListener("click", (e) => {
       e.preventDefault();
+      revealed = true;
       document.querySelectorAll(".ibp-hidden-row").forEach((r) =>
         r.classList.remove("ibp-hidden-row"));
       bar.remove();
@@ -159,25 +265,61 @@
     first.parentElement.insertBefore(bar, first);
   }
 
-  async function run() {
-    const rows = document.querySelectorAll(".latest-list-item");
-    if (!rows.length) return;
-
-    store = await IBAY_PLUS.load();
-
-    let any = false;
-    rows.forEach((row) => {
-      const res = decorate(row, store.settings, store.watchlist);
-      if (res) any = true;
+  function showToast(msg, undo) {
+    document.querySelectorAll(".ibp-toast").forEach((el) => el.remove());
+    const t = document.createElement("div");
+    t.className = "ibp-toast";
+    t.innerHTML = `${IBAY_PLUS.esc(msg)} <a href="#">Undo</a>`;
+    t.querySelector("a").addEventListener("click", (e) => {
+      e.preventDefault();
+      if (undo) undo();
+      t.remove();
     });
-    if (any) renderHiddenBar(rows, false);
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 6000);
+  }
 
-    // Re-apply when settings / watchlist change (e.g. from the popup).
+  /* ---------- orchestration ---------- */
+
+  function applyAll() {
+    ctx.counts = { keyword: 0, spam: 0, flood: 0 };
+    document.querySelectorAll(".latest-list-item").forEach((row) => decorate(row));
+    applyFloodCap();
+    renderBar();
+  }
+
+  let timer = null;
+  function debouncedApply() {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      let added = false;
+      document.querySelectorAll(".latest-list-item:not(.ibp-card)").forEach((row) => {
+        decorate(row);
+        added = true;
+      });
+      if (added) { applyFloodCap(); renderBar(); }
+    }, 300);
+  }
+
+  async function run() {
+    const store = await IBAY_PLUS.load();
+    settings = store.settings;
+    watchlist = store.watchlist;
+
+    applyAll();
+
+    // late-added cards (site scripts, infinite lists)
+    new MutationObserver(debouncedApply).observe(document.body, {
+      childList: true, subtree: true,
+    });
+
+    // settings / watchlist changes from the popup
     chrome.storage.onChanged.addListener(async () => {
       const fresh = await IBAY_PLUS.load();
-      store = fresh;
-      document.querySelectorAll(".latest-list-item").forEach((row) =>
-        decorate(row, fresh.settings, fresh.watchlist));
+      settings = fresh.settings;
+      watchlist = fresh.watchlist;
+      applyAll();
     });
   }
 

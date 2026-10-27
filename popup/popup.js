@@ -113,21 +113,67 @@ $("#open-options").addEventListener("click", () => chrome.runtime.openOptionsPag
 
 /* ---------- filters tab ---------- */
 
+async function renderBlockedSellers() {
+  const { settings } = await IBAY_POP.load();
+  const sf = settings.spamFilter || { blockSellers: {} };
+  const ids = Object.keys(sf.blockSellers || {});
+  const box = $("#blocked-sellers");
+  if (!ids.length) { box.innerHTML = ""; return; }
+  box.innerHTML =
+    `<div class="ibp-blocked-head">Hidden sellers (${ids.length})</div>` +
+    ids.map((id) => {
+      const s = sf.blockSellers[id] || {};
+      return `<div class="ibp-blocked-item" data-id="${IBAY_POP.esc(id)}">
+        🚫 <span title="${IBAY_POP.esc(s.name)}">${IBAY_POP.esc(s.name || id)}</span>
+        <button type="button" class="ibp-mini ibp-unblock">unblock</button>
+      </div>`;
+    }).join("");
+  box.querySelectorAll(".ibp-unblock").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.closest(".ibp-blocked-item").dataset.id;
+      const st = await IBAY_POP.load();
+      delete st.settings.spamFilter.blockSellers[id];
+      await IBAY_POP.save({ settings: st.settings });
+      renderBlockedSellers();
+    });
+  });
+}
+
 async function renderFilters() {
   const { settings } = await IBAY_POP.load();
+  const sf = settings.spamFilter;
   $("#hide-keywords").value = settings.hideKeywords.join(", ");
   $("#highlight-keywords").value = settings.highlightKeywords.join(", ");
   $("#alerts-enabled").checked = settings.alertsEnabled !== false;
+  $("#spam-enabled").checked = sf.enabled !== false;
+  $("#spam-allcaps").checked = sf.allCaps !== false;
+  $("#spam-junk").checked = sf.repeatedJunk !== false;
+  $("#spam-phones").value = sf.maxPhones == null ? 3 : sf.maxPhones;
+  $("#spam-flood").value = sf.maxPostsPerSeller == null ? 0 : sf.maxPostsPerSeller;
+  await renderBlockedSellers();
 }
 
 $("#save-filters").addEventListener("click", async () => {
   const split = (v) => v.split(",").map((s) => s.trim()).filter(Boolean);
+  const { settings } = await IBAY_POP.load();
+  const sf = settings.spamFilter;
+  const clamp = (v, lo, hi, dflt) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+  };
   await IBAY_POP.save({
-    settings: {
+    settings: Object.assign({}, settings, {
       hideKeywords: split($("#hide-keywords").value),
       highlightKeywords: split($("#highlight-keywords").value),
       alertsEnabled: $("#alerts-enabled").checked,
-    },
+      spamFilter: Object.assign({}, sf, {
+        enabled: $("#spam-enabled").checked,
+        allCaps: $("#spam-allcaps").checked,
+        repeatedJunk: $("#spam-junk").checked,
+        maxPhones: clamp($("#spam-phones").value, 0, 10, 3),
+        maxPostsPerSeller: clamp($("#spam-flood").value, 0, 50, 0),
+      }),
+    }),
   });
   const st = $("#filter-status");
   st.textContent = "saved ✓";

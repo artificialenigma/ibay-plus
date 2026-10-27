@@ -66,6 +66,7 @@
 
 /* keyword hidden rows */
 .ibp-hidden-row { display: none !important; }
+.ibp-flood-row.ibp-hidden-row { display: none !important; }
 .ibp-hidden-bar {
   padding: 10px 14px;
   margin: 6px 0;
@@ -75,6 +76,33 @@
   color: #5d4037;
 }
 .ibp-hidden-bar a { color: #bf360c; font-weight: 600; }
+
+/* hide-seller chip on listing cards */
+.ibp-hide-seller {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 12px;
+  line-height: 1;
+  text-decoration: none !important;
+  opacity: 0.35;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.ibp-hide-seller:hover { opacity: 1; transform: scale(1.15); }
+
+/* toast with undo */
+.ibp-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #263238;
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.ibp-toast a { color: #80cbc4; font-weight: 700; margin-left: 8px; }
 
 /* item page panel */
 .ibp-panel {

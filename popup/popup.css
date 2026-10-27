@@ -140,6 +140,33 @@ body {
   font-size: 12.5px;
 }
 
+/* blocked sellers list */
+.ibp-blocked { margin: 8px 0 0; }
+.ibp-blocked:empty { display: none; }
+.ibp-blocked-head { font-size: 11.5px; color: var(--ibp-muted); margin-bottom: 4px; }
+.ibp-blocked-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+}
+.ibp-blocked-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ibp-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin: 4px 0 4px 22px;
+  color: var(--ibp-text);
+}
+.ibp-inline input {
+  padding: 3px 5px;
+  border: 1px solid #cfd8dc;
+  border-radius: 5px;
+  font: inherit;
+}
+
 /* filters tab */
 .ibp-field { display: block; margin-bottom: 10px; }
 .ibp-label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 12.5px; }
