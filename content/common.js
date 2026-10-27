@@ -6,6 +6,11 @@ const IBAY_PLUS = {
       hideKeywords: [],
       highlightKeywords: [],
       alertsEnabled: true,
+      priceFilter: {
+        min: null,          // MVR lower bound (null = off)
+        max: null,          // MVR upper bound (null = off)
+        hideUnstated: false // hide "price not stated" posts
+      },
       spamFilter: {
         enabled: true,
         allCaps: false,       // opt-in: ALL-CAPS titles are normal practice on ibay
@@ -25,6 +30,8 @@ const IBAY_PLUS = {
     const settings = Object.assign({}, IBAY_PLUS.DEFAULTS.settings, data.settings || {});
     settings.spamFilter = Object.assign(
       {}, IBAY_PLUS.DEFAULTS.settings.spamFilter, settings.spamFilter || {});
+    settings.priceFilter = Object.assign(
+      {}, IBAY_PLUS.DEFAULTS.settings.priceFilter, settings.priceFilter || {});
     return {
       settings,
       watchlist: data.watchlist || {},

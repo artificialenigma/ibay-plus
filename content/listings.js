@@ -191,7 +191,7 @@
       row.appendChild(mb);
     } else if (!highlighted && mb) mb.remove();
 
-    // hiding: keyword > spam/seller reasons
+    // hiding: keyword > spam/seller > price
     const kwHit = settings.hideKeywords.some((k) => {
       const kw = String(k).trim().toLowerCase();
       return kw && item.title.toLowerCase().includes(kw);
@@ -201,6 +201,14 @@
     else {
       reason = spamReason(item);
       if (reason) ctx.counts.spam++;
+    }
+    if (!reason) {
+      const pf = settings.priceFilter;
+      const outOfRange =
+        (pf.min != null && item.price != null && item.price < pf.min) ||
+        (pf.max != null && item.price != null && item.price > pf.max);
+      const unstated = pf.hideUnstated && item.price == null;
+      if (outOfRange || unstated) { reason = "price"; ctx.counts.price++; }
     }
     const hidden = !!reason && !revealed;
     row.classList.toggle("ibp-hidden-row", hidden);
@@ -230,6 +238,72 @@
         ctx.counts.flood++;
       }
     });
+  }
+
+  /* ---------- price filter bar ---------- */
+
+  function ensurePriceBar() {
+    let bar = document.querySelector(".ibp-price-bar");
+    if (bar) return bar;
+    const rows = document.querySelectorAll(".latest-list-item");
+    if (!rows.length) return null;
+
+    bar = document.createElement("div");
+    bar.className = "ibp-price-bar";
+    bar.innerHTML = `
+      <span class="ibp-price-title">💰 iBay Plus price</span>
+      <label>MVR <input type="number" class="ibp-pf-min" min="0" placeholder="min"></label>
+      <span class="ibp-pf-dash">–</span>
+      <label>MVR <input type="number" class="ibp-pf-max" min="0" placeholder="max"></label>
+      <label class="ibp-pf-unstated"><input type="checkbox" class="ibp-pf-hu"> hide "not stated"</label>
+      <span class="ibp-pf-count"></span>
+      <a href="#" class="ibp-pf-clear">clear</a>`;
+
+    const minInp = bar.querySelector(".ibp-pf-min");
+    const maxInp = bar.querySelector(".ibp-pf-max");
+    const huInp = bar.querySelector(".ibp-pf-hu");
+    const pf = settings.priceFilter || {};
+    if (pf.min != null) minInp.value = pf.min;
+    if (pf.max != null) maxInp.value = pf.max;
+    huInp.checked = !!pf.hideUnstated;
+
+    let t = null;
+    const saveSoon = () => {
+      clearTimeout(t);
+      t = setTimeout(async () => {
+        const min = parseFloat(minInp.value);
+        const max = parseFloat(maxInp.value);
+        let lo = Number.isFinite(min) && min >= 0 ? min : null;
+        let hi = Number.isFinite(max) && max >= 0 ? max : null;
+        if (lo != null && hi != null && lo > hi) {
+          const tmp = lo; lo = hi; hi = tmp;
+          minInp.value = lo; maxInp.value = hi;
+        }
+        const st = await IBAY_PLUS.load();
+        st.settings.priceFilter = { min: lo, max: hi, hideUnstated: huInp.checked };
+        await IBAY_PLUS.save({ settings: st.settings });
+        applyAll(); // onChanged also fires; double-apply is harmless
+      }, 400);
+    };
+    minInp.addEventListener("input", saveSoon);
+    maxInp.addEventListener("input", saveSoon);
+    huInp.addEventListener("change", saveSoon);
+    bar.querySelector(".ibp-pf-clear").addEventListener("click", (e) => {
+      e.preventDefault();
+      minInp.value = ""; maxInp.value = ""; huInp.checked = false;
+      saveSoon();
+    });
+
+    rows[0].parentElement.insertBefore(bar, rows[0]);
+    return bar;
+  }
+
+  function updatePriceBarCount() {
+    const bar = document.querySelector(".ibp-price-bar");
+    if (!bar) return;
+    const n = ctx.counts.price;
+    bar.querySelector(".ibp-pf-count").textContent = n ? `${n} hidden` : "";
+    bar.classList.toggle("ibp-pf-active", n > 0);
   }
 
   /* ---------- hidden bar & toast ---------- */
@@ -262,7 +336,9 @@
         r.classList.remove("ibp-hidden-row"));
       bar.remove();
     });
-    first.parentElement.insertBefore(bar, first);
+    // insert below the price bar (stable order: price bar, then hidden bar)
+    const anchor = document.querySelector(".ibp-price-bar") || first;
+    first.parentElement.insertBefore(bar, anchor);
   }
 
   function showToast(msg, undo) {
@@ -282,10 +358,12 @@
   /* ---------- orchestration ---------- */
 
   function applyAll() {
-    ctx.counts = { keyword: 0, spam: 0, flood: 0 };
+    ctx.counts = { keyword: 0, spam: 0, flood: 0, price: 0 };
+    ensurePriceBar();
     document.querySelectorAll(".latest-list-item").forEach((row) => decorate(row));
     applyFloodCap();
     renderBar();
+    updatePriceBarCount();
   }
 
   let timer = null;
@@ -298,7 +376,7 @@
         decorate(row);
         added = true;
       });
-      if (added) { applyFloodCap(); renderBar(); }
+      if (added) applyAll();
     }, 300);
   }
 

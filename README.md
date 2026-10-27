@@ -14,6 +14,7 @@ anywhere except price checks of the item pages you watch.
 | "Since saved" badges | Listing cards of watched items show how the current price compares to when you saved it. |
 | **Keyword filter** | Hide listings containing keywords (e.g. `wanted`) — with a bar to reveal them. |
 | **Keyword highlight** | Star-highlight listings containing keywords you're hunting (e.g. `iphone 15`, `ps5`). |
+| **Price filter** | 💰 bar at the top of any listing feed — set a MVR min/max range and matching posts hide instantly as you type. Optional "hide price not stated" toggle. The range sticks while you page through results; click *clear* to reset. |
 | **Spam removal** | Auto-hide spam posts from listings: titles with 3+ phone numbers, junk character runs (`!!!!`, `-----`, emoji floods), opt-in ALL-CAPS detection, plus a **🚫 hide-seller** button on every card (undo toast included) and an optional flood cap that collapses sellers posting more than N listings in a feed. Toggle everything in the popup under *Filters*. |
 | **Quick copy phone** | One-tap copy of the seller's number on item pages. |
 | **Export / import** | JSON backup of your watchlist, notes and history in the options page. |

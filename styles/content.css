@@ -77,6 +77,40 @@
 }
 .ibp-hidden-bar a { color: #bf360c; font-weight: 600; }
 
+/* price filter bar */
+.ibp-price-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 14px;
+  margin: 6px 0;
+  border: 1px solid #b2dfdb;
+  border-radius: 8px;
+  background: #e0f2f1;
+  font-size: 13px;
+  color: #00695c;
+}
+.ibp-price-bar.ibp-pf-active { background: #b2dfdb; }
+.ibp-price-title { font-weight: 700; color: #00796b; }
+.ibp-price-bar label { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.ibp-price-bar input[type="number"] {
+  width: 86px;
+  padding: 4px 7px;
+  border: 1px solid #80cbc4;
+  border-radius: 5px;
+  font: inherit;
+  background: #fff;
+}
+.ibp-price-bar .ibp-pf-hu { margin: 0; }
+.ibp-price-bar .ibp-pf-count { font-weight: 700; color: #bf360c; }
+.ibp-price-bar .ibp-pf-clear {
+  color: #00695c;
+  font-weight: 600;
+  text-decoration: underline;
+}
+.ibp-pf-dash { color: #4db6ac; }
+
 /* hide-seller chip on listing cards */
 .ibp-hide-seller {
   display: inline-block;
