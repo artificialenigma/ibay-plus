@@ -1,7 +1,10 @@
 /* iBay Plus — listing page enhancements:
    - watchlist heart button on every listing card
+   - price filter: when a range is set, fetches ALL pages of the current
+     feed (category or search results) and filters across the whole result
+     set — not just page 1
    - spam removal: seller block button, heuristics (ALL-CAPS, phone spam,
-     junk chars), optional flood cap — hidden before you see them
+     junk chars), optional flood cap
    - keyword hide/highlight
    - combined "hidden listings" bar with reveal
    - MutationObserver so late-added cards get decorated too */
@@ -9,38 +12,65 @@
 (function () {
   "use strict";
 
+  const MAX_PAGES = 20;
+  const PAGE_DELAY_MS = 300;
+  const CACHE_TTL_MS = 10 * 60 * 1000;
+
   let settings = null;
   let watchlist = null;
-  let revealed = false; // user clicked "show them" — don't re-hide until reload
+  let revealed = false;      // user clicked "show them" — don't re-hide until reload
+  let jobId = 0;             // bump to cancel a running all-pages fetch
+  let combined = null;       // { url, items: [{...}], pages, truncated } | null
+  let sortMode = "feed";     // feed | asc | desc
 
-  const ctx = { counts: { keyword: 0, spam: 0, flood: 0 }, seenSellers: null };
+  const ctx = { counts: { keyword: 0, spam: 0, flood: 0, price: 0 } };
 
-  /* ---------- extraction ---------- */
+  /* ---------- tiny helpers ---------- */
 
-  function extractItem(row) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function safeUrl(href, base) {
+    try { return new URL(href, base).href; } catch (e) { return null; }
+  }
+
+  function priceFilterOn() {
+    const pf = settings.priceFilter || {};
+    return pf.min != null || pf.max != null || !!pf.hideUnstated;
+  }
+
+  function listingRows() {
+    return document.querySelectorAll(".latest-list-item");
+  }
+
+  /* ---------- extraction (works for live rows and parsed pages) ---------- */
+
+  function extractItemFrom(row, baseUrl) {
     const link = row.querySelector("h5 a") || row.querySelector(".image a");
     if (!link) return null;
-    const id = IBAY_PLUS.itemIdFromUrl(link.getAttribute("href"));
+    const href = safeUrl(link.getAttribute("href"), baseUrl);
+    const id = IBAY_PLUS.itemIdFromUrl(href);
     if (!id) return null;
 
     const img = row.querySelector(".image img");
     const thumb = img ? (img.getAttribute("data-src") || img.getAttribute("src")) : null;
     const sellerA = row.querySelector(".iw-by-seller a");
-    const sellerId = sellerA ? IBAY_PLUS.sellerIdFromUrl(sellerA.getAttribute("href")) : null;
+    const sellerHref = sellerA ? safeUrl(sellerA.getAttribute("href"), baseUrl) : null;
+    const priceEl = row.querySelector(".price");
 
     return {
       id,
-      url: link.href.split("?")[0],
+      url: href ? href.split("?")[0] : null,
       title: link.textContent.trim(),
-      price: (() => {
-        const el = row.querySelector(".price");
-        return el ? IBAY_PLUS.parsePrice(el.textContent) : null;
-      })(),
+      price: priceEl ? IBAY_PLUS.parsePrice(priceEl.textContent) : null,
       image: thumb,
       seller: sellerA ? sellerA.textContent.trim() : "",
-      sellerId,
-      sellerUrl: sellerA ? sellerA.href : "",
+      sellerId: sellerA ? IBAY_PLUS.sellerIdFromUrl(sellerA.getAttribute("href")) : null,
+      sellerUrl: sellerHref,
     };
+  }
+
+  function extractItem(row) {
+    return extractItemFrom(row, location.href);
   }
 
   /* ---------- spam detection ---------- */
@@ -77,11 +107,6 @@
       return "junk characters";
     }
     return null;
-  }
-
-  function sellerBlocked(item) {
-    const sf = settings.spamFilter;
-    return !!(item.sellerId && sf.enabled && sf.blockSellers[item.sellerId]);
   }
 
   /* ---------- decoration ---------- */
@@ -139,7 +164,7 @@
         delete st.settings.spamFilter.blockSellers[item.sellerId];
         await IBAY_PLUS.save({ settings: st.settings });
       });
-      applyAll();
+      refreshAll();
     });
     return btn;
   }
@@ -224,16 +249,13 @@
     const max = Number(settings.spamFilter.maxPostsPerSeller) || 0;
     if (max <= 0) return;
     const counts = new Map();
-    document.querySelectorAll(".latest-list-item").forEach((row) => {
-      const link = row.querySelector("h5 a") || row.querySelector(".image a");
-      if (!link) return;
+    listingRows().forEach((row) => {
       const sellerA = row.querySelector(".iw-by-seller a");
       const sid = sellerA ? IBAY_PLUS.sellerIdFromUrl(sellerA.getAttribute("href")) : null;
       if (!sid) return;
       const n = (counts.get(sid) || 0) + 1;
       counts.set(sid, n);
-      const over = n > max && !revealed;
-      if (over && !row.classList.contains("ibp-hidden-row")) {
+      if (n > max && !revealed && !row.classList.contains("ibp-hidden-row")) {
         row.classList.add("ibp-hidden-row", "ibp-flood-row");
         ctx.counts.flood++;
       }
@@ -245,7 +267,7 @@
   function ensurePriceBar() {
     let bar = document.querySelector(".ibp-price-bar");
     if (bar) return bar;
-    const rows = document.querySelectorAll(".latest-list-item");
+    const rows = listingRows();
     if (!rows.length) return null;
 
     bar = document.createElement("div");
@@ -257,6 +279,7 @@
       <label>MVR <input type="number" class="ibp-pf-max" min="0" placeholder="max"></label>
       <label class="ibp-pf-unstated"><input type="checkbox" class="ibp-pf-hu"> hide "not stated"</label>
       <span class="ibp-pf-count"></span>
+      <span class="ibp-pf-progress"></span>
       <a href="#" class="ibp-pf-clear">clear</a>`;
 
     const minInp = bar.querySelector(".ibp-pf-min");
@@ -282,7 +305,7 @@
         const st = await IBAY_PLUS.load();
         st.settings.priceFilter = { min: lo, max: hi, hideUnstated: huInp.checked };
         await IBAY_PLUS.save({ settings: st.settings });
-        applyAll(); // onChanged also fires; double-apply is harmless
+        // refreshAll also fires via onChanged; jobId bump cancels any stale run
       }, 400);
     };
     minInp.addEventListener("input", saveSoon);
@@ -298,12 +321,271 @@
     return bar;
   }
 
+  function priceBarProgress(msg) {
+    const bar = document.querySelector(".ibp-price-bar");
+    if (!bar) return;
+    bar.querySelector(".ibp-pf-progress").textContent = msg || "";
+  }
+
   function updatePriceBarCount() {
     const bar = document.querySelector(".ibp-price-bar");
     if (!bar) return;
     const n = ctx.counts.price;
     bar.querySelector(".ibp-pf-count").textContent = n ? `${n} hidden` : "";
     bar.classList.toggle("ibp-pf-active", n > 0);
+  }
+
+  /* ---------- all-pages fetch ---------- */
+
+  /** Normalize to the feed's first page: category `_N.html` -> `_0.html`,
+      search `off=N` -> param removed. Crawl always starts here. */
+  function baseFeedUrl() {
+    const u = new URL(location.href);
+    if (/_(\d+)\.html$/.test(u.pathname)) {
+      u.pathname = u.pathname.replace(/_(\d+)\.html$/, "_0.html");
+      return u.href;
+    }
+    u.searchParams.delete("off"); // search pagination
+    return u.href;
+  }
+
+  /** Page-independent key so every page of the same feed shares one cache. */
+  function cacheKey() {
+    const u = new URL(location.href);
+    const p = u.pathname.replace(/_(\d+)\.html$/, "_X.html");
+    u.searchParams.delete("off");
+    return "ibp:all:" + p + u.search;
+  }
+
+  function readCache() {
+    try {
+      const raw = sessionStorage.getItem(cacheKey());
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (Date.now() - data.t > CACHE_TTL_MS) return null;
+      return data;
+    } catch (e) { return null; }
+  }
+
+  function writeCache(data) {
+    try { sessionStorage.setItem(cacheKey(), JSON.stringify(data)); } catch (e) { /* quota */ }
+  }
+
+  function nextPaginationUrl(doc, pageUrl) {
+    const ul = doc.querySelector("ul.pagination");
+    if (!ul) return null;
+    // the "navigate_next" li holds the next page; fall back to nothing
+    let nextHref = null;
+    ul.querySelectorAll("li a").forEach((a) => {
+      if (a.querySelector("i.material-icons") &&
+          /navigate_next/.test(a.querySelector("i").textContent)) {
+        nextHref = a.getAttribute("href");
+      }
+    });
+    if (!nextHref) return null;
+    const nextUrl = safeUrl(nextHref, pageUrl);
+    if (!nextUrl) return null;
+
+    // the last page's "next" loops back to page 1 — stop on that
+    const pageNum = (u) => {
+      const m = /(?:_(\d+)\.html|off=(\d+))/.exec(u);
+      return m ? parseInt(m[1] || m[2], 10) : null;
+    };
+    const cur = pageNum(pageUrl), nxt = pageNum(nextUrl);
+    if (cur != null && nxt != null && nxt <= cur) return null;
+    return nextUrl;
+  }
+
+  async function fetchAllPages(startUrl, id, onProgress) {
+    let url = startUrl;
+    const items = [];
+    const seen = new Set();
+    let pages = 0;
+
+    while (url && pages < MAX_PAGES) {
+      if (id !== jobId) return null; // superseded
+      const res = await fetch(url, { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+
+      doc.querySelectorAll(".latest-list-item").forEach((row) => {
+        const it = extractItemFrom(row, url);
+        if (it && !seen.has(it.id)) { seen.add(it.id); items.push(it); }
+      });
+
+      pages++;
+      if (onProgress) onProgress(pages, url);
+
+      const next = nextPaginationUrl(doc, url);
+      if (next === url) break;
+      url = next;
+      if (url) await sleep(PAGE_DELAY_MS);
+    }
+    return { items, pages, truncated: pages >= MAX_PAGES && !!url };
+  }
+
+  /* ---------- combined (all pages) rendering ---------- */
+
+  function hideOriginals() {
+    listingRows().forEach((row) => {
+      row.classList.add("ibp-original-hidden");
+      const nx = row.nextElementSibling;
+      if (nx && nx.classList.contains("divider")) nx.classList.add("ibp-original-hidden");
+    });
+  }
+
+  function unhideOriginals() {
+    document.querySelectorAll(".ibp-original-hidden").forEach((el) =>
+      el.classList.remove("ibp-original-hidden"));
+  }
+
+  function sortedItems(items) {
+    const arr = items.slice();
+    if (sortMode === "asc") arr.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+    if (sortMode === "desc") arr.sort((a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity));
+    return arr;
+  }
+
+  function buildResultRow(item) {
+    const row = document.createElement("div");
+    row.className = "bg-light latest-list-item";
+    const priceText = item.price != null
+      ? `<span class="currency">MVR</span> ${item.price.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+      : `<span class="currency">MVR</span> not stated`;
+    row.innerHTML = `
+      <div class="row" style="margin-bottom:0px;">
+        <div class="col m3 s4">
+          <div class="image">
+            <a href="${IBAY_PLUS.esc(item.url)}">
+              <img src="${IBAY_PLUS.esc(item.image || "")}" alt="" onerror="this.style.visibility='hidden'">
+            </a>
+          </div>
+        </div>
+        <div class="col m7 s8">
+          <h5><a href="${IBAY_PLUS.esc(item.url)}">${IBAY_PLUS.esc(item.title)}</a></h5>
+        </div>
+        <div class="col m6 s8">
+          <div class="iw-prod-by">
+            <span class="iw-by-seller"><a href="${IBAY_PLUS.esc(item.sellerUrl || "#")}">${IBAY_PLUS.esc(item.seller)}</a></span>
+          </div>
+        </div>
+        <div class="col m3">
+          <div class="price">${priceText}</div>
+        </div>
+      </div>`;
+    const div = document.createElement("div");
+    div.className = "divider";
+    const frag = document.createDocumentFragment();
+    frag.appendChild(row);
+    frag.appendChild(div);
+    return frag;
+  }
+
+  /** On category pages, offer the site's own server-side price search
+      (covers the whole category, not just the crawled pages). */
+  function serverSearchLink() {
+    const pf = settings.priceFilter || {};
+    const cat = /-b(\d+)(?:_.*)?\.html$/.exec(location.pathname);
+    if (!cat || (pf.min == null && pf.max == null)) return "";
+    const q = new URLSearchParams({ page: "search", s_res: "AND", cid: cat[1] });
+    if (pf.min != null) q.set("f_price_min", String(pf.min));
+    if (pf.max != null) q.set("f_price_max", String(pf.max));
+    return `&nbsp;·&nbsp; <a href="index.php?${IBAY_PLUS.esc(q.toString())}"
+      title="Uses ibay's server-side price filter — covers every item in this category">
+      search all items in this range</a>`;
+  }
+
+  function renderCombined(data) {
+    hideOriginals();
+
+    let sec = document.querySelector(".ibp-allpages");
+    const rows = listingRows();
+    if (!sec) {
+      sec = document.createElement("div");
+      sec.className = "ibp-allpages";
+      const anchor = document.querySelector(".ibp-price-bar") || rows[0];
+      anchor.parentElement.insertBefore(sec, anchor.nextSibling);
+    }
+
+    sec.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "ibp-allpages-head";
+    const shown = sortedItems(data.items);
+    head.innerHTML = `
+      <b>${shown.length}</b> listings from <b>${data.pages}</b> page${data.pages === 1 ? "" : "s"}
+      ${data.truncated ? " (capped at " + MAX_PAGES + " pages)" : ""}
+      &nbsp;·&nbsp; sorted by
+      <select class="ibp-sort">
+        <option value="feed">feed order</option>
+        <option value="asc">price ↑</option>
+        <option value="desc">price ↓</option>
+      </select>
+      ${serverSearchLink()}
+      &nbsp;·&nbsp; <a href="#" class="ibp-restore">show this page only</a>`;
+    head.querySelector(".ibp-sort").value = sortMode;
+    head.querySelector(".ibp-sort").addEventListener("change", (e) => {
+      sortMode = e.target.value;
+      renderCombined(data);
+      applyAll();
+    });
+    head.querySelector(".ibp-restore").addEventListener("click", (e) => {
+      e.preventDefault();
+      restoreOriginal();
+    });
+    sec.appendChild(head);
+
+    shown.forEach((item) => sec.appendChild(buildResultRow(item)));
+  }
+
+  function restoreOriginal() {
+    jobId++; // cancel any running fetch
+    combined = null;
+    document.querySelectorAll(".ibp-allpages").forEach((el) => el.remove());
+    priceBarProgress("");
+    unhideOriginals();
+    applyAll();
+  }
+
+  async function startCombined() {
+    const rows = listingRows();
+    if (!rows.length) return;
+
+    const id = ++jobId;
+    const cached = readCache();
+    if (cached && cached.items && cached.items.length) {
+      combined = cached;
+      renderCombined(combined);
+      applyAll();
+      return;
+    }
+
+    priceBarProgress("fetching all pages…");
+    hideOriginals();
+    try {
+      const data = await fetchAllPages(baseFeedUrl(), id,
+        (pages) => priceBarProgress(`fetching page ${pages}…`));
+      if (id !== jobId) return; // superseded mid-flight
+      if (!data || !data.items.length) {
+        // fallback: filter the current page only
+        priceBarProgress("⚠ couldn't load all pages — filtering this page only");
+        unhideOriginals();
+        combined = null;
+        applyAll();
+        return;
+      }
+      priceBarProgress("");
+      combined = { url: location.href, items: data.items, pages: data.pages, truncated: data.truncated };
+      writeCache({ ...combined, t: Date.now() });
+      renderCombined(combined);
+      applyAll();
+    } catch (err) {
+      if (id !== jobId) return;
+      priceBarProgress("⚠ " + err.message);
+      unhideOriginals();
+      combined = null;
+      applyAll();
+    }
   }
 
   /* ---------- hidden bar & toast ---------- */
@@ -314,7 +596,7 @@
     const total = c.keyword + c.spam + c.flood;
     if (!total) return;
 
-    const rows = document.querySelectorAll(".latest-list-item");
+    const rows = listingRows();
     const first = rows[0];
     if (!first || !first.parentElement) return;
 
@@ -338,7 +620,7 @@
     });
     // insert below the price bar (stable order: price bar, then hidden bar)
     const anchor = document.querySelector(".ibp-price-bar") || first;
-    first.parentElement.insertBefore(bar, anchor);
+    anchor.parentElement.insertBefore(bar, anchor);
   }
 
   function showToast(msg, undo) {
@@ -360,7 +642,7 @@
   function applyAll() {
     ctx.counts = { keyword: 0, spam: 0, flood: 0, price: 0 };
     ensurePriceBar();
-    document.querySelectorAll(".latest-list-item").forEach((row) => decorate(row));
+    listingRows().forEach((row) => decorate(row));
     applyFloodCap();
     renderBar();
     updatePriceBarCount();
@@ -380,25 +662,33 @@
     }, 300);
   }
 
-  async function run() {
+  /** Central entry point: decide between combined mode and page-only mode. */
+  async function refreshAll() {
     const store = await IBAY_PLUS.load();
     settings = store.settings;
     watchlist = store.watchlist;
 
-    applyAll();
+    if (!listingRows().length) return; // not a listing page
 
+    if (priceFilterOn()) {
+      applyAll();          // filter page 1 immediately (fast feedback)
+      startCombined();     // then upgrade to all-pages results
+    } else {
+      if (combined || document.querySelector(".ibp-allpages")) restoreOriginal();
+      else applyAll();
+    }
+  }
+
+  async function run() {
     // late-added cards (site scripts, infinite lists)
     new MutationObserver(debouncedApply).observe(document.body, {
       childList: true, subtree: true,
     });
 
-    // settings / watchlist changes from the popup
-    chrome.storage.onChanged.addListener(async () => {
-      const fresh = await IBAY_PLUS.load();
-      settings = fresh.settings;
-      watchlist = fresh.watchlist;
-      applyAll();
-    });
+    // settings / watchlist changes from the popup or the price bar
+    chrome.storage.onChanged.addListener(() => refreshAll());
+
+    await refreshAll();
   }
 
   run();

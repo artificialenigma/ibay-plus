@@ -14,7 +14,7 @@ anywhere except price checks of the item pages you watch.
 | "Since saved" badges | Listing cards of watched items show how the current price compares to when you saved it. |
 | **Keyword filter** | Hide listings containing keywords (e.g. `wanted`) — with a bar to reveal them. |
 | **Keyword highlight** | Star-highlight listings containing keywords you're hunting (e.g. `iphone 15`, `ps5`). |
-| **Price filter** | 💰 bar at the top of any listing feed — set a MVR min/max range and matching posts hide instantly as you type. Optional "hide price not stated" toggle. The range sticks while you page through results; click *clear* to reset. |
+| **Price filter** | 💰 bar at the top of any listing feed — set a MVR min/max range and iBay Plus **fetches every page of the feed** (up to 20 pages, ~600 items) and filters across the whole result set, not just page 1. Sort the combined results by price ↑/↓, keep the range while you page, optional "hide price not stated" toggle. On category pages a *"search all items in this range"* link also runs ibay's own server-side price search, which covers categories larger than the 20-page cap. |
 | **Spam removal** | Auto-hide spam posts from listings: titles with 3+ phone numbers, junk character runs (`!!!!`, `-----`, emoji floods), opt-in ALL-CAPS detection, plus a **🚫 hide-seller** button on every card (undo toast included) and an optional flood cap that collapses sellers posting more than N listings in a feed. Toggle everything in the popup under *Filters*. |
 | **Quick copy phone** | One-tap copy of the seller's number on item pages. |
 | **Export / import** | JSON backup of your watchlist, notes and history in the options page. |
@@ -57,6 +57,19 @@ make_icons.py          regenerates icons/*.png (requires Pillow)
 
 If ibay changes its HTML later, update the selectors in `content/listings.js`,
 `content/item.js` and the regex in `background.js:parsePriceFromHtml`.
+
+## How the all-pages price filter works
+
+- When a price range is set on a listing feed, the content script crawls the feed's
+  pagination chain (category pages `-b<cid>_<n>.html`, search pages `off=n`),
+  starting from page 1 even if you're currently on a later page.
+- Pages are fetched sequentially with a 300 ms delay; results are deduped by item id,
+  rendered as a combined list below the price bar, and cached in `sessionStorage`
+  for 10 minutes so paging back and forth doesn't re-fetch.
+- The crawl stops at **20 pages**; the header shows when it's capped. For very large
+  categories, use the *"search all items in this range"* link, which runs ibay's
+  server-side price filter (`f_price_min`/`f_price_max`) over the entire category.
+- "show this page only" in the results header switches back to the plain page.
 
 ## Notes & limits
 
