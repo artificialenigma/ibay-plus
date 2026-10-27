@@ -1,0 +1,164 @@
+/* iBay Plus — styles injected on ibay.com.mv */
+
+/* watch heart button on listing cards */
+.ibp-watch-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e0e0e0;
+  border-radius: 50%;
+  background: #fff;
+  color: #b0bec5;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.ibp-watch-btn:hover {
+  transform: scale(1.12);
+  color: #e91e63;
+}
+.ibp-watch-btn.ibp-watched {
+  color: #e91e63;
+  border-color: #f8bbd0;
+  background: #fce4ec;
+}
+
+/* "since saved" price badge */
+.ibp-since-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 5;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #eceff1;
+  color: #455a64;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+.ibp-since-badge.ibp-drop { background: #e8f5e9; color: #2e7d32; }
+.ibp-since-badge.ibp-rise { background: #ffebee; color: #c62828; }
+
+/* keyword match highlight */
+.ibp-highlight-row {
+  outline: 2px dashed #ff9800 !important;
+  outline-offset: -2px;
+}
+.ibp-match-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #fff3e0;
+  color: #e65100;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* keyword hidden rows */
+.ibp-hidden-row { display: none !important; }
+.ibp-hidden-bar {
+  padding: 10px 14px;
+  margin: 6px 0;
+  background: #efebe9;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #5d4037;
+}
+.ibp-hidden-bar a { color: #bf360c; font-weight: 600; }
+
+/* item page panel */
+.ibp-panel {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #b2dfdb;
+  border-radius: 8px;
+  background: #f1f8f7;
+  font-size: 13px;
+  color: #263238;
+}
+.ibp-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ibp-panel-title {
+  font-weight: 700;
+  color: #00796b;
+  letter-spacing: 0.3px;
+}
+.ibp-panel-watch {
+  border: 1px solid #00796b;
+  border-radius: 18px;
+  padding: 5px 14px;
+  background: #fff;
+  color: #00796b;
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ibp-panel-watch:hover { background: #e0f2f1; }
+.ibp-panel-watch.ibp-watched {
+  background: #00796b;
+  color: #fff;
+  border-color: #00796b;
+}
+.ibp-panel-status { font-size: 12px; color: #00695c; }
+
+.ibp-hist { margin-bottom: 8px; color: #455a64; }
+.ibp-alert-row, .ibp-note-row { margin-top: 8px; }
+.ibp-alert-input {
+  width: 110px;
+  padding: 4px 7px;
+  border: 1px solid #cfd8dc;
+  border-radius: 5px;
+  font: inherit;
+}
+.ibp-panel .ibp-panel-body button,
+.ibp-panel-watch {
+  font-family: inherit;
+}
+.ibp-panel-body button {
+  border: 1px solid #00796b;
+  border-radius: 5px;
+  padding: 4px 10px;
+  background: #fff;
+  color: #00796b;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ibp-panel-body button:hover { background: #e0f2f1; }
+.ibp-note {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+/* copy phone button */
+.ibp-copy-btn {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.15);
+  color: #fff !important;
+  font-size: 12px;
+  text-decoration: none !important;
+  vertical-align: middle;
+}
+.ibp-copy-btn:hover { background: rgba(0, 0, 0, 0.25); }

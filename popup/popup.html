@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>iBay Plus</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="ibp-header">
+    <img src="../icons/icon32.png" alt="" />
+    <h1>iBay Plus</h1>
+    <span id="count" class="ibp-count"></span>
+  </header>
+
+  <nav class="ibp-tabs">
+    <button type="button" class="ibp-tab active" data-tab="watchlist">♥ Watchlist</button>
+    <button type="button" class="ibp-tab" data-tab="filters">⚙ Filters</button>
+  </nav>
+
+  <!-- Watchlist tab -->
+  <main id="tab-watchlist" class="ibp-panel active">
+    <div class="ibp-actions">
+      <button type="button" id="check-now" class="ibp-btn">⟳ Check prices now</button>
+      <button type="button" id="open-options" class="ibp-btn ibp-btn-ghost">Manage data</button>
+    </div>
+    <div id="check-status" class="ibp-check-status"></div>
+    <ul id="watch-items" class="ibp-items"></ul>
+    <div id="watch-empty" class="ibp-empty">
+      Nothing saved yet.<br /><br />
+      While browsing <b>ibay.com.mv</b>, tap the ♡ button on any listing
+      to save it here — with price tracking and a private note.
+    </div>
+  </main>
+
+  <!-- Filters tab -->
+  <main id="tab-filters" class="ibp-panel">
+    <label class="ibp-field">
+      <span class="ibp-label">Hide listings containing (comma separated)</span>
+      <textarea id="hide-keywords" rows="3" placeholder="e.g. wanted, resell, kuda furi"></textarea>
+    </label>
+    <label class="ibp-field">
+      <span class="ibp-label">Highlight listings containing</span>
+      <textarea id="highlight-keywords" rows="3" placeholder="e.g. iphone 15, ps5, maldives trip"></textarea>
+    </label>
+    <label class="ibp-toggle">
+      <input type="checkbox" id="alerts-enabled" />
+      <span>Price-drop notifications (checked every 30 min)</span>
+    </label>
+    <button type="button" id="save-filters" class="ibp-btn ibp-btn-primary">Save filters</button>
+    <span id="filter-status" class="ibp-check-status"></span>
+  </main>
+
+  <script src="../content/common.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

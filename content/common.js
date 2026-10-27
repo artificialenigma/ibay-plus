@@ -1,0 +1,75 @@
+/* Shared helpers for iBay Plus content scripts. */
+
+const IBAY_PLUS = {
+  DEFAULTS: {
+    settings: {
+      hideKeywords: [],
+      highlightKeywords: [],
+      alertsEnabled: true,
+    },
+    watchlist: {},
+  },
+
+  /** Read the whole store (settings + watchlist), with defaults filled in. */
+  async load() {
+    const data = await chrome.storage.local.get(["settings", "watchlist"]);
+    return {
+      settings: Object.assign({}, IBAY_PLUS.DEFAULTS.settings, data.settings || {}),
+      watchlist: data.watchlist || {},
+    };
+  },
+
+  /** Persist a partial store. */
+  async save(partial) {
+    await chrome.storage.local.set(partial);
+  },
+
+  /**
+   * Extract the numeric item id from any iBay item URL.
+   * Item pages look like: slug-text-o6535971.html
+   */
+  itemIdFromUrl(url) {
+    const m = /-o(\d+)\.html/.exec(url || "");
+    return m ? m[1] : null;
+  },
+
+  /** Parse "MVR 4,300.00" style text into a number (null when absent). */
+  parsePrice(text) {
+    if (!text) return null;
+    const cleaned = text.replace(/[\u00a0\s]/g, " ");
+    const m = /([\d][\d,]*(?:\.\d{1,2})?)/.exec(cleaned);
+    if (!m) return null;
+    const n = parseFloat(m[1].replace(/,/g, ""));
+    return Number.isFinite(n) ? n : null;
+  },
+
+  /** Format a price for display, e.g. "MVR 4,300.00" -> "Rf 4,300". */
+  formatPrice(n) {
+    if (n == null || !Number.isFinite(n)) return "—";
+    return "MVR " + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  },
+
+  /** Short relative time, e.g. "3h ago". */
+  timeAgo(ts) {
+    if (!ts) return "";
+    const diff = Date.now() - ts;
+    const mins = Math.round(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.round(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(ts).toLocaleDateString();
+  },
+
+  /** Escape text for safe HTML interpolation. */
+  esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  },
+};
